@@ -1,3 +1,4 @@
+use std::cmp::Ordering;
 use crate::map::{Map, MapElement, Position, Terrain, Unit, UnitType};
 
 enum UnitAction {
@@ -12,16 +13,23 @@ struct Target {
     distance: usize,
 }
 
-pub fn run_round(map: &mut Map, elves_buff: u16) -> bool {
+pub fn run_round(map: &mut Map, elves_buff: u16) -> Option<UnitType> {
     let units = map.get_units_positions();
     for unit in units {
         if !are_enemies_left(map) {
-            return false;
+            let units = map.get_units_positions();
+            return Some(units[0].details.0);
         }
 
         if map.get_unit(unit.position).is_none() {
             continue;
         }
+
+        let elves_count = map
+            .get_units_positions()
+            .iter()
+            .filter(|unit| unit.details.0 == UnitType::Elf)
+            .count();
 
         let first_action = run_unit_strategy(map, unit, elves_buff);
         let is_action_move = matches!(first_action, UnitAction::Move(_));
@@ -37,9 +45,18 @@ pub fn run_round(map: &mut Map, elves_buff: u16) -> bool {
                 do_unit_action(map, unit, second_action);
             }
         }
+
+        let new_elves_count = map
+            .get_units_positions()
+            .iter()
+            .filter(|unit| unit.details.0 == UnitType::Elf)
+            .count();
+        if new_elves_count < elves_count {
+            return Some(UnitType::Goblin);
+        }
     }
 
-    return true;
+    return None;
 }
 
 fn are_enemies_left(map: &Map) -> bool {
@@ -67,7 +84,26 @@ fn run_unit_strategy(map: &Map, unit: Unit, elves_buff: u16) -> UnitAction {
         return UnitAction::None;
     }
 
-    reachable_targets.sort_by_key(|target| (target.distance, target.unit.details.1, target.position.1, target.position.0));
+    reachable_targets.sort_by(|a, b| {
+        if a.distance == b.distance {
+            if a.distance == 0 {
+                if a.unit.details.1 == b.unit.details.1 {
+                    if a.position.1.cmp(&b.position.1) == Ordering::Equal {
+                        return a.position.0.cmp(&b.position.0);
+                    } else {
+                        return a.position.1.cmp(&b.position.1);
+                    }
+                }
+                return a.unit.details.1.cmp(&b.unit.details.1);
+            }
+            if a.position.1.cmp(&b.position.1) == Ordering::Equal {
+                return a.position.0.cmp(&b.position.0);
+            } else {
+                return a.position.1.cmp(&b.position.1);
+            }
+        }
+        return a.distance.cmp(&b.distance);
+    });
     let closest_target = match reachable_targets.first() {
         Some(target) => target,
         None => unreachable!("We have checked that there is at least one target"),
